@@ -1,0 +1,120 @@
+---
+title: "r_review_sonia"
+output: html_document
+date: "2024-02-26"
+---
+R Review Project
+=====
+
+Part 1: Review Questions
+-----
+
+### General Concepts
+1. What is TCGA and why is it important?
+
+   TCGA is the Cancer Genome Atlas, a publicly available multi-omic dataset that can be used to explore the genomic data from a large sample of cancer patients. Its importance lies in its ability to associate clinical, proteomic, and/or genomic data with the presence of disease.
+   
+2. What are some strengths and weaknesses of TCGA?
+
+   Strengths of TCGA include its large sample size (data collected from ~20,000 patients), ease of use (i.e. clinical data can be analyzed as dataframes in R), diverse set of variables/data, and its real-world applications. Weaknesses of TCGA include the size of the package and how long it takes to download.
+
+### Coding Skills
+1. What commands are used to save a file to your GitHub repository?
+
+   "git add <file>" tells git to track all local modications done to <file>
+   "git push" pushes modified files in your local repository to your GitHub repository
+
+2. What command(s) must be run in order to use a package in R?
+
+   install.packages() and library(), with the desired package passed as an argument in both functions.
+
+3. What command(s) must be run in order to use a *Bioconductor* package in R?
+```{r part_1_packages}
+install.packages("BiocManager")
+library(BiocManager)
+```
+
+
+4. What is boolean indexing? What are some applications of it?
+   
+   Boolean indexing is the process of applying a vector of boolean values (i.e. TRUE/FALSE) to a column/row in a dataframe. This helps with data dimensions reduction: the column/row originally could be holding 0+ different values, but with boolean indexing the column/row can be viewed as a set of either TRUEs (select the data) or FALSEs (ignore the data). Its biggest application is with data subsetting. Boolean indexing could be used to create boolean masks to effectively subset for a group of interest or to clean data of null values (i.e. NAs).
+
+5. Draw a mock up (just a few rows and columns) of a sample dataframe. Show an example of the following and explain what each line of code does.
+  a.an ifelse() statement
+  b.boolean indexing
+```{r part_1_dataframe}
+# creating family member df
+Name <- c("Sonia", "Sameer", "Amy", "Rishi")
+Sex <- c("Female", "Male", "Female", "Male")
+Age <- c(22, 60, 56, 29)
+df <- data.frame(Name, Sex, Age)
+
+# example of ifelse() statement and boolean indexing: 
+
+# create Boolean vector: TRUE if female, FALSE if not
+female_mask <- ifelse(df$Sex == "Female", T, F)
+
+# subset df by just female rows, i.e. indices for which female_mask is TRUE
+female_df <- df[female_mask,]
+```
+
+
+Part 2: SKCM Analysis
+-----
+
+In this project, you will conduct multi-omic analyses to answer the following research question: 
+**What are the differences between metastatic and non-metastatic SKCM across the genomic and transcriptome?**
+
+```{r part_2_setup}
+# setting working directory
+    knitr::opts_knit$set(root.dir = normalizePath("C:/Users/Owner/Documents/USC/Senior Year/qbio490/qbio_490_sonia/analysis_data"))
+
+# loading necessary packages
+library(BiocManager)
+library(TCGAbiolinks)
+library(maftools)
+```
+
+
+```{r part_2_data_download}
+# download TCGA clinical data from SKCM analysis
+
+clin_query <- GDCquery(project = "TCGA-SKCM",
+                       data.category = "Clinical",
+                       data.type = "Clinical Supplement",
+                       data.format = "BCR Biotab")
+#GDCdownload(clin_query)
+clinical.BCRtab.all <- GDCprepare(clin_query)
+
+# accessing data and radiation dfs
+rad <- clinical.BCRtab.all$clinical_radiation_skcm[-c(1,2),]
+drug <- clinical.BCRtab.all$clinical_drug_skcm[-c(1,2),]
+
+rna_query <- GDCquery(project = "TCGA-SKCM",
+                      data.category = "Transcriptome Profiling",
+                      data.type = "Gene Expression Quantification",
+                      workflow.type = "STAR - Counts")
+#GDCdownload(rna_query)
+rna_se <- GDCprepare(rna_query)
+rna_clinical <- data.frame(rna_se@colData)
+
+# creating maf_object
+rna_clinical$Tumor_Sample_Barcode <- rna_clinical$patient
+```
+
+```{r part_2_plots}
+
+# KM plot: diff in survival btwn metastatic and non-metastatic patients
+
+# co-oncoplot: mutation diffs for multiple genes
+
+# co-lollipop plot: mutation diffs for specific gene of interest
+
+# somatic interaction plot 1: cooccurrence or mutual exclusion of common gene mutations in metastatic patients
+
+# somatic interaction plot 2: cooccurrence or mutual exclusion of common gene mutations in non-metastatic patients
+
+# DESeq2 + Volcano plot: differential expression controlling for treatment effects, race, gender, and vital status
+# treatments must include radiation, chemotherapy, immunotherapy, molecular therapy, vaccine
+```
+
