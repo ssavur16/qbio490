@@ -65,7 +65,8 @@ Part 2: SKCM Analysis
 In this project, you will conduct multi-omic analyses to answer the following research question: 
 **What are the differences between metastatic and non-metastatic SKCM across the genomic and transcriptome?**
 
-```{r part_2_setup}
+# r setup
+```{r setup}
 # setting working directory
     knitr::opts_knit$set(root.dir = normalizePath("C:/Users/Owner/Documents/USC/Senior Year/qbio490/qbio_490_sonia/analysis_data"))
 
@@ -73,12 +74,12 @@ In this project, you will conduct multi-omic analyses to answer the following re
 library(BiocManager)
 library(TCGAbiolinks)
 library(maftools)
+#BiocManager::install("DESeq2")
+library(DESeq2)
 ```
 
-
-```{r part_2_data_download}
 # download TCGA clinical data from SKCM analysis
-
+```{r part_2_data_download}
 clin_query <- GDCquery(project = "TCGA-SKCM",
                        data.category = "Clinical",
                        data.type = "Clinical Supplement",
@@ -90,6 +91,7 @@ clinical.BCRtab.all <- GDCprepare(clin_query)
 rad <- clinical.BCRtab.all$clinical_radiation_skcm[-c(1,2),]
 drug <- clinical.BCRtab.all$clinical_drug_skcm[-c(1,2),]
 
+# downloading SummarizedExperiment object
 rna_query <- GDCquery(project = "TCGA-SKCM",
                       data.category = "Transcriptome Profiling",
                       data.type = "Gene Expression Quantification",
@@ -97,24 +99,181 @@ rna_query <- GDCquery(project = "TCGA-SKCM",
 #GDCdownload(rna_query)
 rna_se <- GDCprepare(rna_query)
 rna_clinical <- data.frame(rna_se@colData)
+rna_genes <- rna_se@rowRanges@elementMetadata
+rna_counts <- data.frame(rna_se@assays@data$unstranded)
 
 # creating maf_object
 rna_clinical$Tumor_Sample_Barcode <- rna_clinical$patient
+
+maf_query <- GDCquery(
+  project = 'TCGA-SKCM',
+  data.category = "Simple Nucleotide Variation",
+  access = "open",
+  data.type = "Masked Somatic Mutation",
+  workflow.type = "Aliquot Ensemble Somatic Variant Merging and Masking"
+)
+#GDCdownload(maf_query)
+maf <- GDCprepare(maf_query)
+
+maf_object <- read.maf(maf = maf,
+                       clinicalData = rna_clinical,
+                       isTCGA = TRUE)
+
+maf_clinical <- maf_object@clinical.data
 ```
 
-```{r part_2_plots}
+# PLOT 1 - KM plot: difference in survival between metastatic and non-metastatic patients
+```{r km_plot}
+# loading in necessary packages
+library(survival)
+library(survminer)
+library(ggplot2)
 
-# KM plot: diff in survival btwn metastatic and non-metastatic patients
+# removing NA values in age column
+rna_clinical$age <- rna_clinical$age_at_diagnosis / 365
+age_NA_mask <- !is.na(rna_clinical$age)
+clean_rna_clinical <- rna_clinical[age_NA_mask, ]
 
-# co-oncoplot: mutation diffs for multiple genes
+# create survival time column for KM survival plot
+clean_rna_clinical$survival_time <- ifelse(is.na(clean_rna_clinical$days_to_death), clean_rna_clinical$days_to_last_follow_up, clean_rna_clinical$days_to_death)
+clean_rna_clinical$survival_time <- as.numeric(clean_rna_clinical$survival_time)
 
-# co-lollipop plot: mutation diffs for specific gene of interest
+# create boolean death_event column: true if dead, false if alive
+clean_rna_clinical$death_event <- ifelse(clean_rna_clinical$vital_status == "Dead", T, F)
 
-# somatic interaction plot 1: cooccurrence or mutual exclusion of common gene mutations in metastatic patients
+# create survminer objects
+survival_object <- Surv(time = clean_rna_clinical$survival_time, event = clean_rna_clinical$death_event)
+fit_object <- survfit(survival_object ~ definition, data = clean_rna_clinical)
 
-# somatic interaction plot 2: cooccurrence or mutual exclusion of common gene mutations in non-metastatic patients
-
-# DESeq2 + Volcano plot: differential expression controlling for treatment effects, race, gender, and vital status
-# treatments must include radiation, chemotherapy, immunotherapy, molecular therapy, vaccine
+# plot
+survplot <- ggsurvplot(fit_object,
+                       data = clean_rna_clinical,
+                       pval=TRUE, 
+                       ggtheme = theme(plot.margin = unit(c(1,1,1,1), "cm")), 
+                       legend = 'right')
+KM_plot <- survplot$plot + theme_bw() + theme(axis.title = element_text(size=20),
+                                              axis.text = element_text(size=16),
+                                              legend.title = element_text(size=14),
+                                              legend.text = element_text(size=12))
+KM_plot
+ggsave("KM_plot_metastatis.png", path = "/Users/Owner/Documents/USC/Senior Year/qbio490/qbio_490_sonia/r_review_sonia")
 ```
 
+# PLOT 2 - co-oncoplot: mutation differences between metastatic and non-metastatic patients for multiple genes
+```{r co_oncoplot}
+# subset maf_object to metastatic group
+meta_barcodes <- maf_clinical[maf_clinical$definition == "Metastatic"]
+meta_barcodes <- meta_barcodes$Tumor_Sample_Barcode
+meta_maf <- subsetMaf(maf = maf_object,
+                      tsb = meta_barcodes)
+
+# subset maf_object to non-metastatic group
+non_meta_barcodes <- maf_clinical[maf_clinical$definition == "Primary solid Tumor"]
+non_meta_barcodes <- non_meta_barcodes$Tumor_Sample_Barcode
+non_meta_maf <- subsetMaf(maf = maf_object,
+                          tsb = non_meta_barcodes)
+
+# plot and save
+coOncoplot(m1 = meta_maf, 
+           m2 = non_meta_maf, 
+           m1Name = "Metastatic Patients", 
+           m2Name = "Non-Metastatic Patients",
+           geneNamefont = 0.5,
+           borderCol = NA)
+dev.copy(png, "coOncoplot_metastatis.png")
+dev.off()
+```
+
+# PLOT 3 - co-lollipop plot: mutation differences for specific gene of interest
+```{r}
+# chosen gene of interest: DNAH5
+lollipopPlot2(m1 = meta_maf, 
+              m2 = non_meta_maf, 
+              m1_name = "Metastatic Patients",
+              m2_name = "Non-Metastatic Patients",
+              gene = "DNAH5")
+dev.copy(png, "coLollipop_metastatis_DNAH5.png")
+dev.off()
+```
+
+# PLOT 4 - somatic interaction plot 1: cooccurrence or mutual exclusion of common gene mutations in metastatic patients
+```{r}
+somaticInteractions(maf = meta_maf,
+                    top = 20,
+                    pvalue = c(0.05, 0.1)) ## default p-values
+dev.copy(png, "somaticInteractions_metastatic.png")
+dev.off()
+```
+
+# PLOT 5 - somatic interaction plot 2: cooccurrence or mutual exclusion of common gene mutations in non-metastatic patients
+```{r}
+setwd("/Users/Owner/Documents/USC/Senior Year/qbio490/qbio_490_sonia/r_review_sonia")
+somaticInteractions(maf = non_meta_maf,
+                    top = 20,
+                    pvalue = c(0.05, 0.1)) ## default p-values
+dev.copy(png, "somaticInteractions_non_metastatic.png")
+dev.off()
+```
+
+# PLOT 6 - DESeq2 + Volcano plot: differential expression controlling for treatment effects, race, gender, and vital status
+```{r}
+# one-hot encoding patient treatments: 1 if true, 0 if false
+# 5 treatments: radiation, chemotherapy, immunotherapy, molecular therapy, vaccine
+patients <- rna_clinical$patient
+rna_clinical$radiation <- ifelse(rna_clinical$patient %in% rad$bcr_patient_barcode, 1, 0)
+
+chemo_patients <- drug[drug$pharmaceutical_therapy_type == "Chemotherapy", ]
+chemo_patients <- chemo_patients$bcr_patient_barcode
+rna_clinical$chemotherapy <- ifelse(rna_clinical$patient %in% chemo_patients, 1, 0)
+
+immuno_patients <- drug[drug$pharmaceutical_therapy_type == "Immunotherapy", ]
+immuno_patients <- immuno_patients$bcr_patient_barcode
+rna_clinical$immunotherapy <- ifelse(rna_clinical$patient %in% immuno_patients, 1, 0)
+
+molecular_patients <- drug[drug$pharmaceutical_therapy_type == "Targeted Molecular therapy", ]
+molecular_patients <- molecular_patients$bcr_patient_barcode
+rna_clinical$molecular_therapy <- ifelse(rna_clinical$patient %in% molecular_patients, 1, 0)
+
+vaccine_patients <- drug[drug$pharmaceutical_therapy_type == "Vaccine", ]
+vaccine_patients <- vaccine_patients$bcr_patient_barcode
+rna_clinical$vaccine <- ifelse(rna_clinical$patient %in% vaccine_patients, 1, 0)
+
+# convert variable of interest and covariates to factors
+rna_clinical$race <- factor(rna_clinical$race)
+rna_clinical$gender <- factor(rna_clinical$gender)
+rna_clinical$vital_status <- factor(rna_clinical$vital_status)
+rna_clinical$radiation <- factor(rna_clinical$radiation)
+rna_clinical$chemotherapy <- factor(rna_clinical$chemotherapy)
+rna_clinical$immunotherapy <- factor(rna_clinical$immunotherapy)
+rna_clinical$molecular_therapy <- factor(rna_clinical$molecular_therapy)
+rna_clinical$vaccine <- factor(rna_clinical$vaccine)
+rna_clinical$definition <- factor(rna_clinical$definition)
+
+# creating DESeq dataset and object
+colnames(rna_counts) <- rna_clinical$barcode
+dds <- DESeqDataSetFromMatrix(countData = rna_counts,
+                              colData = rna_clinical,
+                              design = ~race + gender + vital_status + radiation + chemotherapy + immunotherapy + molecular_therapy + vaccine + definition)
+dds_obj <- DESeq(dds)
+
+# extracting results from dds_obj
+# metastatic group = comparison group, non-metastatic = baseline
+results <- results(dds_obj, format = "DataFrame",
+                   contrast = c("definition", "Metastatic", "Primary solid Tumor"))
+
+# volcano plot
+BiocManager::install("EnhancedVolcano")
+library(EnhancedVolcano)
+EnhancedVolcano(results,
+                lab = rna_se@rowRanges@elementMetadata@listData$gene_name,
+                x = 'log2FoldChange',
+                y = 'pvalue',
+                title = "Differential gene expression between metastatic and non-metastatic group",
+                subtitle = NULL,
+                titleLabSize = 12,
+                pCutoff = 0.05,
+                axisLabSize = 10,
+                labSize = 3,
+                legendLabSize = 10)
+ggsave("volcano_plot.png", path = "/Users/Owner/Documents/USC/Senior Year/qbio490/qbio_490_sonia/r_review_sonia")
+```
