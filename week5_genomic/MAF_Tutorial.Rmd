@@ -7,7 +7,7 @@ date: 01/08/24
 ###### (1) Set Up
 
 ```{r setup}
-    knitr::opts_knit$set(root.dir = normalizePath("/Users/kaylaxu/Desktop/qbio_490_kayla/analysis_data")) 
+    knitr::opts_knit$set(root.dir = normalizePath("/Users/Owner/Documents/USC/Senior Year/qbio490/qbio_490_sonia/analysis_data")) 
 ```
 
 ```{r}
@@ -20,7 +20,7 @@ library(ggplot2)
 Before we get into MAF, we need to read in the clinical data (created in Intro_to_Clinical_Data.Rmd) so it can be merged with our MAF data later on.
 
 ```{r Exercise 1.1}
-clinical <- read.csv("/PATH/TO/analysis_data/skcm_clinical_data.csv")
+clinical <- read.csv("/Users/Owner/Documents/USC/Senior Year/qbio490/qbio_490_sonia/analysis_data/skcm_clinical_data.csv")
 ```
 
 We also need to change the bcr_patient_barcode column name that way the MAF package can read our clinical file.
@@ -33,7 +33,7 @@ After changing the column name, re-save the clinical data frame to your computer
 
 ```{r Exercise 1.3}
 # change the file path! make sure it's in your  folder
-write.csv(clinical, "/PATH/TO/analysis_data/skcm_clinical_data.csv", row.names=FALSE)
+write.csv(clinical, "/Users/Owner/Documents/USC/Senior Year/qbio490/qbio_490_sonia/analysis_data/skcm_clinical_data.csv", row.names=FALSE)
 ```
 
 ###### (2) MAF Package
@@ -49,7 +49,7 @@ maf_query <- GDCquery(
   workflow.type = "Aliquot Ensemble Somatic Variant Merging and Masking"
 )
 
-#GDCdownload(maf_query)
+GDCdownload(maf_query)
 
 maf <- GDCprepare(maf_query) # as long as it runs, ignore any errors
 
@@ -69,14 +69,21 @@ str(maf_object)
 
 Notice the @ and $ signs. What do each of them represent?
 
-  @ represents:
-  $ represents:
+  @ represents: name of dataframe in maf_object
+  $ represents: column names of dataframe
   
 List all of the data frames within the maf_object by typing maf_object@ then either waiting for a popup, or if no popup appears, by hitting tab.
 
 ```{r Exercise 3.2}
 # write code here
 maf_object@data
+maf_object@variants.per.sample
+maf_object@variant.type.summary
+maf_object@variant.classification.summary
+maf_object@gene.summary
+maf_object@summary
+maf_object@maf.silent
+maf_object@clinical.data
 ```
 
 Call head() and str() on the @data df and the @clinical.data df. These will be the main data frames we use in our MAF analysis.
@@ -95,9 +102,8 @@ View @data and @clinical.data.
 
 ```{r Exercise 3.4}
 # write code here
-
-View(maf_object@data)
-
+maf_object@data
+maf_object@clinical.data
 ```
 
 View the Tumor_Sample_Barcode column and the HGVSp_Short column for all TP53 mutations (i.e. Hugo_Symbol == "TP53"). Hint: boolean masking!
@@ -120,18 +126,21 @@ head(maf.data$Amino_acids)
 ```
 Refer to a codon chart and amino acid abbreviation chart to answer the following:
  - What mutation could cause a S/R change?
+ A point/missense mutation at the third nucleotide of the codon could cause an S/R change. The codons AGU and AGC correspond to the amino acid serine (S), and if the third nucleotide were changed to an A or G, the resulting codon (i.e. AGA or AGG) would correspond to the amino acid arginine (R).
+ 
  - What about an A/T change?
+ alanine, threonine
+ A point/missense mutation at the first nucleotide of the codon could cuase an A/T chance. The codons GCU, GCC, GCA, and GCG correspond to the amino acid alanine (A), and if the first nucleotide underwent a transition change from guanine to adenine, the resulting codon (i.e. ACU, ACC, ACA, or ACG) would correspond to the amino acid threonine (T).
 
 Call head() on the HGVSp_Short column in @data.
 
 ```{r Exercise 3.7}
 # write code here
-
 head(maf.data$HGVSp_Short)
 ```
 
 What does p.P728Afs*11 mean? (Do some google-ing!)
-
+The number indicates the position of the protein, and the letter preceding and following this position correspond to the amino acids this position. P728A means that there is a variant that changes a Proline residue at position 728 of the protein to an Alanine residue. "fs" indicates that there is a frameshift mutation within this protein, and the amino acid at position 728 is the first affected by this change. *11 gives the position of the stop codon in the new reading frame; in the context of this problem, the translation termination codon is 11 residues from position 728.
 
 ###### (4) Oncoplots
 
@@ -144,7 +153,7 @@ oncoplot(maf = maf_object,
          top = 10,
          borderCol = NA) 
 
-ggsave("PATH/TO/qbio_490_NAME/oncoplot_top#_SKCM.png")
+ggsave("/Users/Owner/Documents/USC/Senior Year/qbio490/qbio_490_sonia/oncoplot_top#_SKCM.png")
 ```
 
 
@@ -152,7 +161,7 @@ You can also create an oncoplot for specific genes of your choosing by passing a
 
 ```{r Exercise 8.2}
 oncoplot(maf = maf_object,
-         genes = c("TTN", "PCLO", "DNAH7"),
+         genes = c("TTN", "PCLO", "DNAH7", "RPTN", "HRNR"),
          borderCol = NA)
 ```
 
@@ -161,6 +170,9 @@ We can further customize our oncoplots by adding clinical data in the form of an
 age_category column has been added but if you don't understand it, review the Intro_to_R notebook.
 
 ```{r Exercise 8.3}
+age_diag_NA_mask <- !(maf_object@clinical.data$age_at_diagnosis == "[Not Available]")
+maf_object@clinical.data = maf_object@clinical.data[age_diag_NA_mask, ]
+
 median_age <- median(as.numeric(maf_object@clinical.data$age_at_diagnosis))
 print(median_age)
 

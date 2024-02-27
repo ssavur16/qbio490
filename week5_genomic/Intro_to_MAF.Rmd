@@ -16,15 +16,16 @@ In MAF_Tutorial.Rmd, you looked at how to analyze mutation data in terms of clin
 *Pre-Assignment*
 Load all necessary packages, read in the clinical data .csv file you have in your analysis_data folder, and instantiate the MAF_object.
 ```{r}
-knitr::opts_knit$set(root.dir = normalizePath("/PATH/TO/analysis_data"))
+# /Users/Owner/Documents/USC/Senior Year/qbio490/qbio_490_sonia/week5_genomic
+knitr::opts_knit$set(root.dir = normalizePath("/Users/Owner/Documents/USC/Senior Year/qbio490/qbio_490_sonia/analysis_data"))
 
 library(BiocManager)
 library(TCGAbiolinks)
 library(maftools)
 
-clinical <- read.csv("/PATH/TO/analysis_data/skcm_clinical_data.csv")
+clinical <- read.csv("/Users/Owner/Documents/USC/Senior Year/qbio490/qbio_490_sonia/analysis_data/skcm_clinical_data.csv")
 colnames(clinical)[ colnames(clinical) == "bcr_patient_barcode" ] <- "Tumor_Sample_Barcode"
-write.csv(clinical, "/PATH/TO/analysis_data/skcm_clinical_data.csv", row.names = FALSE)
+write.csv(clinical, "/Users/Owner/Documents/USC/Senior Year/qbio490/qbio_490_sonia/analysis_data/skcm_clinical_data.csv", row.names = FALSE)
 
 ```
 
@@ -44,16 +45,17 @@ maf <- GDCprepare(maf_query) # as long as it runs, ignore any errors
 maf_object <- read.maf(maf = maf, 
                        clinicalData = clinical,
                        isTCGA = TRUE)
-
-
 ```
 
 
 *1*
 Choose a clinical variable to separate your populations into two different groups and rewrite the column or create a new column with that variable as a factor. ***Do not use age or vital_status as your clinical variable.*** Hint: if your variable is continuous, you will need to determine your own cutoffs for the different levels of the factor. If your variable is categorical and has more than two possible values, choose the two that are the most common.
 ```{r}
-
-
+# chosen clinical variable = tumor_status (categorical)
+maf_clinical <- maf_object@clinical.data
+tumor_NA_mask <- (maf_object@clinical.data$tumor_status == "WITH TUMOR" | maf_object@clinical.data$tumor_status == "TUMOR FREE")
+maf_clinical = maf_object@clinical.data[tumor_NA_mask, ]
+maf_clinical$tumor_status <- factor(maf_clinical$tumor_status)
 ```
 
 
@@ -61,29 +63,90 @@ Choose a clinical variable to separate your populations into two different group
 Create a co-oncoplot with the top 10-20 (you choose) most mutated genes for the two groups. Pick one that has a large discrepancy in % mutated or type of mutations between the groups and research it. 
 Research it. What is the gene used for? Can you think of any reason for the discrepancy?
 ```{r}
+# top 10 most mutated genes for with-tumor and tumor-free groups
 
-```
+with_tumor_barcodes <- maf_clinical[maf_clinical$tumor_status == "WITH TUMOR",]
+with_tumor_barcodes <- with_tumor_barcodes$Tumor_Sample_Barcode
+with_tumor_maf <- subsetMaf(maf = maf_object,
+                            tsb = with_tumor_barcodes)
+
+tumor_free_barcodes <- maf_clinical[maf_clinical$tumor_status == "TUMOR FREE",]
+tumor_free_barcodes <- tumor_free_barcodes$Tumor_Sample_Barcode
+tumor_free_maf <- subsetMaf(maf = maf_object,
+                            tsb = tumor_free_barcodes)
+
+coOncoplot(m1 = with_tumor_maf, 
+           m2 = tumor_free_maf, 
+           m1Name = "With Tumor", 
+           m2Name = "Tumor Free", 
+           borderCol = NA)
+ggsave("coOncoplot_tumor_MAF.png", path = "/Users/Owner/Documents/USC/Senior Year/qbio490/qbio_490_sonia/week5_genomic")
+```   
+The PCLO gene has a large discrepancy in percent mutated between the two groups. The protein product of PCLO is involved in the presynaptic cytoskeletal matrix, and mutations in this gene have been associated with B-cell lymphoma. One reason for this discrepancy could be that mutations in PCLO inhibit cell communication and tumor metastatis in tumor-free patients.
 
 *3*
 Create a contingency table with your variable and chosen gene. Run a Fisher’s Exact Test between presence of mutations for that gene and your clinical variable. Create and save a mosaic plot. 
 Interpret the output of the Fisher’s Exact Test in terms of the odds ratio and p-value.
 ```{r}
+pclo_maf <- subsetMaf(maf = maf_object,
+                       genes = 'PCLO')
+tumor_NA_mask <- (pclo_maf@clinical.data$tumor_status == "WITH TUMOR" | pclo_maf@clinical.data$tumor_status == "TUMOR FREE")
+pclo_maf@clinical.data <- pclo_maf@clinical.data[tumor_NA_mask, ]
+pclo_maf@clinical.data$tumor_status <- factor(pclo_maf@clinical.data$tumor_status)
 
+no_pclo_barcodes <- setdiff(maf_clinical$bcr_patient_uuid, mut_pats_pclo)
+no_pclo_maf <- subset(maf_clinical, bcr_patient_uuid = no_pclo_barcodes)
+
+# mutations, tumor free
+mut_tumor_free_pclo <- pclo_maf@clinical.data$bcr_patient_uuid[pclo_maf@clinical.data$tumor_status == "TUMOR FREE"]
+# mutations, with tumor
+mut_with_tumor_pclo <- pclo_maf@clinical.data$bcr_patient_uuid[pclo_maf@clinical.data$tumor_status == "WITH TUMOR"]
+# no mutations, tumor free
+no_mut_tumor_free <- no_pclo_maf$bcr_patient_uuid[no_pclo_maf$tumor_status == "TUMOR FREE"]
+# no mutations, with tumor
+no_mut_with_tumor <- no_pclo_maf$bcr_patient_uuid[no_pclo_maf$tumor_status == "WITH TUMOR"]
+
+contig <- matrix(c(length(mut_tumor_free_pclo),
+                   length(mut_with_tumor_pclo),
+                   length(no_mut_tumor_free),
+                   length(no_mut_with_tumor)),
+                 nrow=2)
+mosaicplot(contig)
+ggsave("mosaicplot_pclo_tumor_status.png", path = "/Users/Owner/Documents/USC/Senior Year/qbio490/qbio_490_sonia/week5_genomic")
+
+fisher_test <- fisher.test(contig)
+fisher_test
+print(fisher_test$p.value)
 ```
-
+Based on the reported p-value of 0.44 from the Fisher's exact test, there is no statistical significance between the presence of mutations in the PCLO gene and patient tumor status.
 
 *4*
 Subset your maf_object based on your chosen clinical variable and create a co-lollipop plot of your chosen gene divided between the two different clinical variable possibilities. Include descriptive names on your plot.
 Do you notice any difference in terms of mutations (e.g. sites, types, number) between the two populations?
 ```{r}
-
+# chosen clinical variable: tumor_status
+# chosen gene: PCLO
+lollipopPlot2(m1 = tumor_free_maf, 
+              m2 = with_tumor_maf, 
+              m1_name = "Tumor Free",
+              m2_name = "With Tumor",
+              gene = "PCLO")
 ```
-
+The lollipop plots for the two groups (tumor free and with tumor) look very similar. Thus, there does not seem to be a significant difference in terms of mutations between the two populations.
 
 *5*
 Create your Overall_Survival_Status column and create a mafSurvival KM plot based on mutations in your chosen gene.
 Does there seem to be a difference? Hypothesize why or not based on the other analysis you did with the gene above.
 ```{r}
+maf_object@clinical.data <- maf_clinical
+maf_object@clinical.data$Overall_Survival_Status <- ifelse(maf_object@clinical.data$death_days_to == "[Not Applicable]", "ALIVE", "DEAD")
+maf_object@clinical.data$Survival_Time <- ifelse(maf_object@clinical.data$Overall_Survival_Status == "DEAD", maf_object@clinical.data$death_days_to, maf_object@clinical.data$last_contact_days_to)
+maf_object@clinical.data$Survival_Time <- as.numeric(maf_object@clinical.data$Survival_Time)
+cleaned_maf <- maf_object@clinical.data[!is.na(maf_object@clinical.data$Survival_Time),]
 
-
+mafSurvival(maf = maf_object,
+            genes = "PCLO", 
+            time = "Survival_Time",
+            Status = "Overall_Survival_Status",
+            isTCGA = TRUE)
 ```
