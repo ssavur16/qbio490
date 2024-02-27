@@ -138,15 +138,21 @@ The lollipop plots for the two groups (tumor free and with tumor) look very simi
 Create your Overall_Survival_Status column and create a mafSurvival KM plot based on mutations in your chosen gene.
 Does there seem to be a difference? Hypothesize why or not based on the other analysis you did with the gene above.
 ```{r}
-maf_object@clinical.data <- maf_clinical
-maf_object@clinical.data$Overall_Survival_Status <- ifelse(maf_object@clinical.data$death_days_to == "[Not Applicable]", "ALIVE", "DEAD")
-maf_object@clinical.data$Survival_Time <- ifelse(maf_object@clinical.data$Overall_Survival_Status == "DEAD", maf_object@clinical.data$death_days_to, maf_object@clinical.data$last_contact_days_to)
-maf_object@clinical.data$Survival_Time <- as.numeric(maf_object@clinical.data$Survival_Time)
-cleaned_maf <- maf_object@clinical.data[!is.na(maf_object@clinical.data$Survival_Time),]
+# removing NA values from age column
+maf_object@clinical.data$age_at_diagnosis <- as.numeric(maf_object@clinical.data$age_at_diagnosis)
+maf_object@clinical.data$age <- maf_object@clinical.data$age_at_diagnosis / 365.25
+age_NA_mask <- !is.na(maf_object@clinical.data$age)
+maf_object@clinical.data <- maf_object@clinical.data[age_NA_mask, ]
+
+# create survival time and death event columns for KM survival plot
+maf_object@clinical.data$survival_time <- ifelse(is.na(maf_object@clinical.data$days_to_death), maf_object@clinical.data$days_to_last_follow_up, maf_object@clinical.data$days_to_death)
+maf_object@clinical.data$survival_time <- as.numeric(maf_object@clinical.data$survival_time)
+maf_object@clinical.data$Overall_Survival_Status <- ifelse(maf_object@clinical.data$vital_status == "Dead", T, F)
 
 mafSurvival(maf = maf_object,
             genes = "PCLO", 
-            time = "Survival_Time",
+            time = "survival_time",
             Status = "Overall_Survival_Status",
             isTCGA = TRUE)
 ```
+There does not appear to be a significant difference in the survival probability between patients with mutant PCLO vs. wild-type; the graph reports a p-value of 0.852. This corroborates with the lack of statistical significance findings from Fisher's exact test and the lollipop plots above.
